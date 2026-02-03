@@ -114,11 +114,18 @@ export function useChatBot() {
         break;
       case 'age':
         const age = parseInt(value);
-        if (isNaN(age) || age < 13 || age > 120) {
-          return "Please enter a valid age (13-120) 🎂";
+        if (isNaN(age) || age < 5 || age > 99) {
+          return "Please enter a valid age between 5 and 99 🎂";
         }
         break;
       case 'firstName':
+        if (value.trim().includes(' ')) {
+          return "Please enter only your first name (one word) 😊";
+        }
+        if (value.trim().length < 2) {
+          return "Please enter at least 2 characters";
+        }
+        break;
       case 'surname':
       case 'stateOfOrigin':
       case 'lga':
@@ -208,6 +215,25 @@ export function useChatBot() {
   }, [currentStep, addUserMessage, addBotMessage, registrationData, startChat]);
 
   const handleFileUpload = useCallback((file: File, type: 'image' | 'video') => {
+    // Validate file size
+    const maxSize = type === 'image' ? 5 * 1024 * 1024 : 50 * 1024 * 1024;
+    const maxSizeLabel = type === 'image' ? '5MB' : '50MB';
+    
+    if (file.size > maxSize) {
+      addBotMessage(`❌ File too large! Maximum size is ${maxSizeLabel}. Your file is ${(file.size / (1024 * 1024)).toFixed(1)}MB. Please upload a smaller file.`);
+      return;
+    }
+
+    // Validate file type
+    const allowedTypes = type === 'image' 
+      ? ['image/jpeg', 'image/png', 'image/jpg']
+      : ['video/mp4'];
+    
+    if (!allowedTypes.includes(file.type)) {
+      addBotMessage(`❌ Invalid file type! Please upload ${type === 'image' ? 'a JPG or PNG image' : 'an MP4 video'}.`);
+      return;
+    }
+
     const fileUrl = URL.createObjectURL(file);
     
     addUserMessage(
@@ -244,7 +270,7 @@ export function useChatBot() {
         }, 1500);
       }, 500);
     }
-  }, [addUserMessage, addBotMessage, registrationData]);
+  }, [addUserMessage, addBotMessage, registrationData, setRegistrationData]);
 
   const resetChat = useCallback(() => {
     hasStarted.current = false;
