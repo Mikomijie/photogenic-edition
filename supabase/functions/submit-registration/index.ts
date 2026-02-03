@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { Resend } from "https://esm.sh/resend@2.0.0"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -16,6 +17,92 @@ interface RegistrationPayload {
   lga: string;
   photoBase64: string;
   videoBase64: string;
+}
+
+// Helper function to convert base64 data URL to blob
+function base64ToBlob(dataUrl: string): { blob: Blob; mimeType: string; extension: string } | null {
+  try {
+    if (!dataUrl.startsWith('data:')) {
+      console.log('Not a valid data URL');
+      return null;
+    }
+
+    const [meta, base64Data] = dataUrl.split(',');
+    if (!base64Data) {
+      console.log('No base64 data found');
+      return null;
+    }
+
+    const mimeMatch = meta.match(/^data:(.*?);/);
+    const mimeType = mimeMatch?.[1] || 'application/octet-stream';
+    
+    // Determine file extension from mime type
+    let extension = 'bin';
+    if (mimeType.includes('image/jpeg') || mimeType.includes('image/jpg')) extension = 'jpg';
+    else if (mimeType.includes('image/png')) extension = 'png';
+    else if (mimeType.includes('video/mp4')) extension = 'mp4';
+    else if (mimeType.includes('video/webm')) extension = 'webm';
+
+    // Convert base64 to binary
+    const binaryString = atob(base64Data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    const blob = new Blob([bytes], { type: mimeType });
+    return { blob, mimeType, extension };
+  } catch (error) {
+    console.error('Error converting base64 to blob:', error);
+    return null;
+  }
+}
+
+// Upload file to Supabase Storage and return public URL
+// deno-lint-ignore no-explicit-any
+async function uploadToStorage(
+  supabase: any,
+  dataUrl: string,
+  folder: string,
+  email: string
+): Promise<string | null> {
+  try {
+    const blobData = base64ToBlob(dataUrl);
+    if (!blobData) {
+      console.log('Failed to convert base64 to blob');
+      return null;
+    }
+
+    const { blob, extension } = blobData;
+    const timestamp = Date.now();
+    const sanitizedEmail = email.replace(/[^a-zA-Z0-9]/g, '_');
+    const fileName = `${folder}/${sanitizedEmail}_${timestamp}.${extension}`;
+
+    console.log(`Uploading ${folder} file: ${fileName}, size: ${blob.size} bytes`);
+
+    const { data, error } = await supabase.storage
+      .from('registrations')
+      .upload(fileName, blob, {
+        contentType: blobData.mimeType,
+        upsert: true
+      });
+
+    if (error) {
+      console.error(`Error uploading ${folder}:`, error);
+      return null;
+    }
+
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from('registrations')
+      .getPublicUrl(fileName);
+
+    console.log(`Successfully uploaded ${folder}: ${urlData.publicUrl}`);
+    return urlData.publicUrl;
+  } catch (error) {
+    console.error(`Error in uploadToStorage for ${folder}:`, error);
+    return null;
+  }
 }
 
 const sendConfirmationEmail = async (data: RegistrationPayload, resend: Resend) => {
@@ -125,6 +212,8 @@ serve(async (req) => {
   try {
     const AIRTABLE_TOKEN = Deno.env.get('AIRTABLE_PERSONAL_ACCESS_TOKEN');
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
+    const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
+    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     
     // Validate token is present and looks like an Airtable Personal Access Token (starts with "pat")
     const tokenLen = AIRTABLE_TOKEN?.length ?? 0;
@@ -150,6 +239,9 @@ serve(async (req) => {
       );
     }
 
+    // Initialize Supabase client for storage
+    const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!);
+    
     const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
 
     const payload: RegistrationPayload = await req.json();
@@ -167,31 +259,54 @@ serve(async (req) => {
       }
     }
 
-    // Prepare Airtable payload - using simple field names
-    // Note: Airtable field names must match EXACTLY what's in your table
-    const airtablePayload = {
-      fields: {
-        "Email": payload.email,
-        "First Name": payload.firstName,
-        "Middle Name": payload.middleName === 'none' ? '' : payload.middleName,
-        "Surname": payload.surname,
-        "Age": parseInt(payload.age),
-        "State of Origin": payload.stateOfOrigin,
-        "LGA": payload.lga,
+    // Upload photo and video to Supabase Storage
+    let photoUrl: string | null = null;
+    let videoUrl: string | null = null;
+
+    if (payload.photoBase64 && payload.photoBase64.startsWith('data:')) {
+      console.log('Uploading photo to storage...');
+      photoUrl = await uploadToStorage(supabase, payload.photoBase64, 'photos', payload.email);
+      if (photoUrl) {
+        console.log('Photo uploaded successfully:', photoUrl);
+      } else {
+        console.log('Failed to upload photo, continuing without it');
       }
+    }
+
+    if (payload.videoBase64 && payload.videoBase64.startsWith('data:')) {
+      console.log('Uploading video to storage...');
+      videoUrl = await uploadToStorage(supabase, payload.videoBase64, 'videos', payload.email);
+      if (videoUrl) {
+        console.log('Video uploaded successfully:', videoUrl);
+      } else {
+        console.log('Failed to upload video, continuing without it');
+      }
+    }
+
+    // Prepare Airtable payload with storage URLs
+    const airtableFields: Record<string, unknown> = {
+      "Email": payload.email,
+      "First Name": payload.firstName,
+      "Middle Name": payload.middleName === 'none' ? '' : payload.middleName,
+      "Surname": payload.surname,
+      "Age": parseInt(payload.age),
+      "State of Origin": payload.stateOfOrigin,
+      "LGA": payload.lga,
     };
 
-    // Only add attachments if they exist and are valid data URLs
-    if (payload.photoBase64 && payload.photoBase64.startsWith('data:')) {
-      // For attachments, Airtable needs a publicly accessible URL, not base64
-      // We'll skip attachments for now - they need to be uploaded to storage first
-      console.log('Photo provided but skipping attachment (base64 not supported directly)');
+    // Add attachments if we have URLs
+    if (photoUrl) {
+      airtableFields["Professional Photo"] = [{ url: photoUrl }];
     }
-    if (payload.videoBase64 && payload.videoBase64.startsWith('data:')) {
-      console.log('Video provided but skipping attachment (base64 not supported directly)');
+    if (videoUrl) {
+      airtableFields["Introduction Video"] = [{ url: videoUrl }];
     }
 
-    console.log('Submitting to Airtable with fields:', Object.keys(airtablePayload.fields));
+    const airtablePayload = { fields: airtableFields };
+
+    console.log('Submitting to Airtable with fields:', Object.keys(airtableFields));
+    console.log('Photo URL:', photoUrl ? 'present' : 'none');
+    console.log('Video URL:', videoUrl ? 'present' : 'none');
 
     // Submit to Airtable
     const airtableResponse = await fetch(
@@ -219,7 +334,6 @@ serve(async (req) => {
           airtableStatus: airtableResponse.status,
           details: airtableResult,
         }),
-        // Always return 200 so the client doesn't throw a FunctionsHttpError; handle success via JSON
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -239,6 +353,8 @@ serve(async (req) => {
         success: true, 
         message: 'Registration submitted successfully',
         emailSent,
+        photoUploaded: !!photoUrl,
+        videoUploaded: !!videoUrl,
         record: JSON.parse(airtableResult)
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
