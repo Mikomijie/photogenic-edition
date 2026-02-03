@@ -3,7 +3,7 @@ import { Resend } from "https://esm.sh/resend@2.0.0"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 }
 
 interface RegistrationPayload {
@@ -126,15 +126,26 @@ serve(async (req) => {
     const AIRTABLE_TOKEN = Deno.env.get('AIRTABLE_PERSONAL_ACCESS_TOKEN');
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
     
-    // Debug: Log token presence and length
-    console.log('AIRTABLE_TOKEN exists:', !!AIRTABLE_TOKEN);
-    console.log('AIRTABLE_TOKEN length:', AIRTABLE_TOKEN?.length || 0);
-    console.log('AIRTABLE_TOKEN starts with:', AIRTABLE_TOKEN?.substring(0, 10) || 'N/A');
-    
+    // Validate token is present and looks like an Airtable Personal Access Token (starts with "pat")
+    const tokenLen = AIRTABLE_TOKEN?.length ?? 0;
+    const tokenLooksValid = !!AIRTABLE_TOKEN && tokenLen > 40 && AIRTABLE_TOKEN.toLowerCase().startsWith('pat');
+    console.log('AIRTABLE_TOKEN present:', !!AIRTABLE_TOKEN, 'length:', tokenLen, 'looksValid:', tokenLooksValid);
+
     if (!AIRTABLE_TOKEN) {
       console.error('Missing AIRTABLE_PERSONAL_ACCESS_TOKEN secret');
       return new Response(
-        JSON.stringify({ error: 'Server configuration error - missing Airtable token' }),
+        JSON.stringify({ success: false, error: 'Server misconfigured: missing Airtable token' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (!tokenLooksValid) {
+      console.error('AIRTABLE_PERSONAL_ACCESS_TOKEN does not look like a valid Airtable PAT');
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Server misconfigured: invalid Airtable token format. Please update AIRTABLE_PERSONAL_ACCESS_TOKEN with a valid token that starts with "pat".',
+        }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -193,11 +204,14 @@ serve(async (req) => {
     if (!airtableResponse.ok) {
       console.error('Airtable API error:', airtableResult);
       return new Response(
-        JSON.stringify({ 
-          error: 'Failed to submit to Airtable', 
-          details: airtableResult 
+        JSON.stringify({
+          success: false,
+          error: 'Failed to submit to Airtable',
+          airtableStatus: airtableResponse.status,
+          details: airtableResult,
         }),
-        { status: airtableResponse.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        // Always return 200 so the client doesn't throw a FunctionsHttpError; handle success via JSON
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
