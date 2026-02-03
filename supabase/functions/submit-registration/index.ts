@@ -167,7 +167,8 @@ serve(async (req) => {
       }
     }
 
-    // Prepare Airtable payload
+    // Prepare Airtable payload - using simple field names
+    // Note: Airtable field names must match EXACTLY what's in your table
     const airtablePayload = {
       fields: {
         "Email": payload.email,
@@ -177,12 +178,20 @@ serve(async (req) => {
         "Age": parseInt(payload.age),
         "State of Origin": payload.stateOfOrigin,
         "LGA": payload.lga,
-        "Professional Photo": payload.photoBase64 ? [{ url: payload.photoBase64 }] : [],
-        "Introduction Video": payload.videoBase64 ? [{ url: payload.videoBase64 }] : [],
       }
     };
 
-    console.log('Submitting to Airtable...');
+    // Only add attachments if they exist and are valid data URLs
+    if (payload.photoBase64 && payload.photoBase64.startsWith('data:')) {
+      // For attachments, Airtable needs a publicly accessible URL, not base64
+      // We'll skip attachments for now - they need to be uploaded to storage first
+      console.log('Photo provided but skipping attachment (base64 not supported directly)');
+    }
+    if (payload.videoBase64 && payload.videoBase64.startsWith('data:')) {
+      console.log('Video provided but skipping attachment (base64 not supported directly)');
+    }
+
+    console.log('Submitting to Airtable with fields:', Object.keys(airtablePayload.fields));
 
     // Submit to Airtable
     const airtableResponse = await fetch(
