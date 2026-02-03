@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { Message, RegistrationData, ChatStep } from '@/types/chat';
+import { supabase } from '@/integrations/supabase/client';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
@@ -137,7 +138,55 @@ export function useChatBot() {
     return null;
   };
 
-  const processUserInput = useCallback((input: string) => {
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = (error) => reject(error);
+    });
+  };
+
+  const submitToAirtable = async (data: RegistrationData): Promise<boolean> => {
+    try {
+      let photoBase64 = '';
+      let videoBase64 = '';
+
+      if (data.photo) {
+        photoBase64 = await fileToBase64(data.photo);
+      }
+      if (data.video) {
+        videoBase64 = await fileToBase64(data.video);
+      }
+
+      const { data: response, error } = await supabase.functions.invoke('submit-registration', {
+        body: {
+          email: data.email,
+          firstName: data.firstName,
+          middleName: data.middleName,
+          surname: data.surname,
+          age: data.age,
+          stateOfOrigin: data.stateOfOrigin,
+          lga: data.lga,
+          photoBase64,
+          videoBase64,
+        },
+      });
+
+      if (error) {
+        console.error('Edge function error:', error);
+        return false;
+      }
+
+      console.log('Airtable submission response:', response);
+      return response?.success === true;
+    } catch (error) {
+      console.error('Error submitting to Airtable:', error);
+      return false;
+    }
+  };
+
+  const processUserInput = useCallback(async (input: string) => {
     const trimmedInput = input.trim();
     addUserMessage(trimmedInput);
 
@@ -148,13 +197,23 @@ export function useChatBot() {
           submittedAt: new Date(),
         };
         
-        // Save to localStorage
-        const existingData = JSON.parse(localStorage.getItem('registrations') || '[]');
-        existingData.push(finalData);
-        localStorage.setItem('registrations', JSON.stringify(existingData));
+        // Show submitting message
+        addBotMessage("⏳ Submitting your registration...");
         
-        setCurrentStep('complete');
-        addBotMessage(BOT_MESSAGES.complete);
+        // Submit to Airtable
+        const success = await submitToAirtable(finalData);
+        
+        if (success) {
+          // Save to localStorage as backup
+          const existingData = JSON.parse(localStorage.getItem('registrations') || '[]');
+          existingData.push(finalData);
+          localStorage.setItem('registrations', JSON.stringify(existingData));
+          
+          setCurrentStep('complete');
+          addBotMessage(BOT_MESSAGES.complete);
+        } else {
+          addBotMessage("❌ Something went wrong. Please try again by typing YES to resubmit.");
+        }
         return;
       } else if (trimmedInput.toUpperCase() === 'NO') {
         hasStarted.current = false;
