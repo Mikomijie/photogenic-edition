@@ -126,10 +126,15 @@ serve(async (req) => {
     const AIRTABLE_TOKEN = Deno.env.get('AIRTABLE_PERSONAL_ACCESS_TOKEN');
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
     
+    // Debug: Log token presence and length
+    console.log('AIRTABLE_TOKEN exists:', !!AIRTABLE_TOKEN);
+    console.log('AIRTABLE_TOKEN length:', AIRTABLE_TOKEN?.length || 0);
+    console.log('AIRTABLE_TOKEN starts with:', AIRTABLE_TOKEN?.substring(0, 10) || 'N/A');
+    
     if (!AIRTABLE_TOKEN) {
       console.error('Missing AIRTABLE_PERSONAL_ACCESS_TOKEN secret');
       return new Response(
-        JSON.stringify({ error: 'Server configuration error' }),
+        JSON.stringify({ error: 'Server configuration error - missing Airtable token' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
