@@ -129,34 +129,56 @@ export function useChatBot() {
     return null;
   };
 
-  const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = (error) => reject(error);
-    });
+  const uploadFileToStorage = async (file: File, folder: string, email: string): Promise<string | null> => {
+    try {
+      const timestamp = Date.now();
+      const sanitizedEmail = email.replace(/[^a-zA-Z0-9]/g, '_');
+      const ext = file.name.split('.').pop() || (folder === 'photos' ? 'jpg' : 'mp4');
+      const fileName = `${folder}/${sanitizedEmail}_${timestamp}.${ext}`;
+
+      const { error } = await supabase.storage
+        .from('registrations')
+        .upload(fileName, file, { contentType: file.type, upsert: true });
+
+      if (error) { console.error(`Upload ${folder} error:`, error); return null; }
+
+      const { data: urlData } = supabase.storage
+        .from('registrations')
+        .getPublicUrl(fileName);
+
+      return urlData.publicUrl;
+    } catch (error) {
+      console.error(`Error uploading ${folder}:`, error);
+      return null;
+    }
   };
 
   const submitToAirtable = async (data: RegistrationData): Promise<boolean> => {
     try {
-      let photoBase64 = '';
-      let videoBase64 = '';
-      if (data.photo) photoBase64 = await fileToBase64(data.photo);
-      if (data.video) videoBase64 = await fileToBase64(data.video);
+      // Upload files directly to storage from client
+      let photoUrl = '';
+      let videoUrl = '';
+      if (data.photo) {
+        const url = await uploadFileToStorage(data.photo, 'photos', data.email);
+        if (url) photoUrl = url;
+      }
+      if (data.video) {
+        const url = await uploadFileToStorage(data.video, 'videos', data.email);
+        if (url) videoUrl = url;
+      }
 
       const { data: response, error } = await supabase.functions.invoke('submit-registration', {
         body: {
           email: data.email, firstName: data.firstName, middleName: data.middleName,
           surname: data.surname, age: data.age, stateOfOrigin: data.stateOfOrigin,
-          lga: data.lga, photoBase64, videoBase64,
+          lga: data.lga, photoUrl, videoUrl,
         },
       });
 
       if (error) { console.error('Edge function error:', error); return false; }
       return response?.success === true;
     } catch (error) {
-      console.error('Error submitting to Airtable:', error);
+      console.error('Error submitting:', error);
       return false;
     }
   };
