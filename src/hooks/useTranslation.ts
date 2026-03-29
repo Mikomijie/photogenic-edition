@@ -65,10 +65,16 @@ export function useTranslation() {
     languageRef.current = null;
   }, []);
 
+  const setLanguage = useCallback((lang: string) => {
+    setDetectedLanguage(lang);
+    languageRef.current = lang;
+  }, []);
+
   return {
     detectedLanguage,
     detectAndTranslate,
     translate,
     resetLanguage,
+    setLanguage,
   };
 }

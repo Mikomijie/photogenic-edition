@@ -1,19 +1,38 @@
-import { Camera, Globe } from 'lucide-react';
+import { Camera, Globe, ChevronDown } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 interface ChatHeaderProps {
   detectedLanguage?: string | null;
+  onLanguageChange?: (lang: string) => void;
 }
 
-const LANGUAGE_NAMES: Record<string, string> = {
-  en: 'English', fr: 'Français', es: 'Español', pt: 'Português',
-  ha: 'Hausa', yo: 'Yoruba', ig: 'Igbo', ar: 'العربية',
-  sw: 'Kiswahili', zu: 'isiZulu', pcm: 'Pidgin', de: 'Deutsch',
-  it: 'Italiano', zh: ' 中文', ja: '日本語', ko: '한국어',
-  hi: 'हिन्दी', ru: 'Русский', tr: 'Türkçe', nl: 'Nederlands',
-};
+const LANGUAGE_OPTIONS: { code: string; label: string }[] = [
+  { code: 'en', label: 'English' },
+  { code: 'fr', label: 'Français' },
+  { code: 'es', label: 'Español' },
+  { code: 'pt', label: 'Português' },
+  { code: 'ha', label: 'Hausa' },
+  { code: 'yo', label: 'Yoruba' },
+  { code: 'ig', label: 'Igbo' },
+  { code: 'pcm', label: 'Pidgin' },
+  { code: 'ar', label: 'العربية' },
+  { code: 'sw', label: 'Kiswahili' },
+  { code: 'de', label: 'Deutsch' },
+  { code: 'zh', label: '中文' },
+  { code: 'hi', label: 'हिन्दी' },
+];
 
-export function ChatHeader({ detectedLanguage }: ChatHeaderProps) {
+const LANGUAGE_NAMES: Record<string, string> = Object.fromEntries(
+  LANGUAGE_OPTIONS.map(l => [l.code, l.label])
+);
+
+export function ChatHeader({ detectedLanguage, onLanguageChange }: ChatHeaderProps) {
   const langLabel = detectedLanguage
     ? LANGUAGE_NAMES[detectedLanguage] || detectedLanguage.toUpperCase()
     : null;
@@ -27,12 +46,28 @@ export function ChatHeader({ detectedLanguage }: ChatHeaderProps) {
         <h1 className="font-semibold text-base">Photogenic Edition</h1>
         <p className="text-xs opacity-80">Photo Contest Registration</p>
       </div>
-      {langLabel && (
-        <Badge variant="secondary" className="flex items-center gap-1 bg-white/20 text-white border-white/30 text-xs">
-          <Globe className="w-3 h-3" />
-          {langLabel}
-        </Badge>
-      )}
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button className="flex items-center gap-1 bg-white/20 hover:bg-white/30 transition-colors text-white border border-white/30 rounded-full px-2.5 py-1 text-xs cursor-pointer">
+            <Globe className="w-3 h-3" />
+            {langLabel || 'Language'}
+            <ChevronDown className="w-3 h-3 opacity-70" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="max-h-64 overflow-y-auto">
+          {LANGUAGE_OPTIONS.map((lang) => (
+            <DropdownMenuItem
+              key={lang.code}
+              onClick={() => onLanguageChange?.(lang.code)}
+              className={detectedLanguage === lang.code ? 'bg-accent font-medium' : ''}
+            >
+              {lang.label}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
       <div className="flex items-center gap-1">
         <span className="w-2 h-2 bg-green-300 rounded-full animate-pulse"></span>
         <span className="text-xs opacity-80">Online</span>
