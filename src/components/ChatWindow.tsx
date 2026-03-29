@@ -32,7 +32,7 @@ export function ChatWindow() {
 
   return (
     <div className="h-screen flex flex-col chat-container max-w-lg mx-auto">
-      <ChatHeader />
+      <ChatHeader detectedLanguage={detectedLanguage} />
       
       <div className="flex-1 overflow-y-auto px-3 py-4 space-y-3">
         {messages.map((message) => (
