@@ -32,10 +32,11 @@ serve(async (req) => {
     // If first message from user, detect language. Otherwise use provided language.
     const systemPrompt = userMessage && !detectedLanguage
       ? `You are a translation assistant. The user sent this message: "${userMessage}"
-Detect their language. Then translate the following bot message into that language.
+Detect their language based on the WORDS and GRAMMAR they used, NOT based on proper nouns, names, or surnames. Names like "omijie", "mkings", "jezebel" are just names and should NOT be used to guess a language. Only detect a non-English language if the user clearly writes sentences or phrases in that language.
+Then translate the following bot message into that language.
 Keep all emojis. Keep the tone friendly and conversational.
 Respond with ONLY a JSON object: {"language": "<detected language code like en, fr, ha, ig, yo, pcm, etc>", "translatedMessage": "<translated text>"}
-If the user wrote in English, still return the JSON with language "en" and the original message as translatedMessage.`
+If the user wrote in English or just a single name/word that could be a name, return language "en" and the original message as translatedMessage.`
       : `You are a translation assistant. Translate the following message into the language with code "${detectedLanguage}".
 Keep all emojis. Keep the tone friendly and conversational.
 Respond with ONLY the translated text, nothing else. If the language is "en", return the original message unchanged.`;
