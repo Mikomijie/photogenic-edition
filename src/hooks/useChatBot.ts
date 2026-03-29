@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { Message, RegistrationData, ChatStep } from '@/types/chat';
 import { supabase } from '@/integrations/supabase/client';
+import { useTranslation } from './useTranslation';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
@@ -20,18 +21,8 @@ const BOT_MESSAGES: Record<ChatStep, string> = {
 };
 
 const STEP_ORDER: ChatStep[] = [
-  'welcome',
-  'email',
-  'firstName',
-  'middleName',
-  'surname',
-  'age',
-  'stateOfOrigin',
-  'lga',
-  'photo',
-  'video',
-  'confirmation',
-  'complete',
+  'welcome', 'email', 'firstName', 'middleName', 'surname',
+  'age', 'stateOfOrigin', 'lga', 'photo', 'video', 'confirmation', 'complete',
 ];
 
 export function useChatBot() {
@@ -39,45 +30,54 @@ export function useChatBot() {
   const [currentStep, setCurrentStep] = useState<ChatStep>('welcome');
   const [isTyping, setIsTyping] = useState(false);
   const [registrationData, setRegistrationData] = useState<RegistrationData>({
-    email: '',
-    firstName: '',
-    middleName: '',
-    surname: '',
-    age: '',
-    stateOfOrigin: '',
-    lga: '',
-    photo: null,
-    photoUrl: '',
-    video: null,
-    videoUrl: '',
+    email: '', firstName: '', middleName: '', surname: '',
+    age: '', stateOfOrigin: '', lga: '',
+    photo: null, photoUrl: '', video: null, videoUrl: '',
   });
   
   const hasStarted = useRef(false);
+  const isFirstUserMessage = useRef(true);
+  const { detectAndTranslate, translate, resetLanguage } = useTranslation();
 
-  const addBotMessage = useCallback((content: string) => {
+  const addBotMessageRaw = useCallback((content: string) => {
+    setMessages(prev => [...prev, {
+      id: generateId(), type: 'bot', content, timestamp: new Date(),
+    }]);
+  }, []);
+
+  const addBotMessage = useCallback(async (content: string, userInput?: string) => {
     setIsTyping(true);
-    
+
+    let translatedContent = content;
+    try {
+      if (userInput && isFirstUserMessage.current) {
+        // First user message: detect language and translate
+        isFirstUserMessage.current = false;
+        translatedContent = await detectAndTranslate(content, userInput);
+      } else {
+        // Subsequent messages: translate using detected language
+        translatedContent = await translate(content);
+      }
+    } catch {
+      // Fallback to original
+    }
+
+    setIsTyping(false);
+    addBotMessageRaw(translatedContent);
+  }, [detectAndTranslate, translate, addBotMessageRaw]);
+
+  const addBotMessageNoTranslate = useCallback((content: string) => {
+    setIsTyping(true);
     setTimeout(() => {
       setIsTyping(false);
-      setMessages(prev => [...prev, {
-        id: generateId(),
-        type: 'bot',
-        content,
-        timestamp: new Date(),
-      }]);
+      addBotMessageRaw(content);
     }, 1000 + Math.random() * 500);
-  }, []);
+  }, [addBotMessageRaw]);
 
   const addUserMessage = useCallback((content: string, isFile = false, fileName?: string, fileType?: 'image' | 'video', fileUrl?: string) => {
     setMessages(prev => [...prev, {
-      id: generateId(),
-      type: 'user',
-      content,
-      timestamp: new Date(),
-      isFile,
-      fileName,
-      fileType,
-      fileUrl,
+      id: generateId(), type: 'user', content, timestamp: new Date(),
+      isFile, fileName, fileType, fileUrl,
     }]);
   }, []);
 
@@ -97,42 +97,35 @@ export function useChatBot() {
     if (hasStarted.current) return;
     hasStarted.current = true;
     
-    addBotMessage(BOT_MESSAGES.welcome);
+    // Welcome messages don't get translated (no user input yet)
+    addBotMessageNoTranslate(BOT_MESSAGES.welcome);
     
     setTimeout(() => {
       setCurrentStep('email');
-      addBotMessage(BOT_MESSAGES.email);
+      addBotMessageNoTranslate(BOT_MESSAGES.email);
     }, 2000);
-  }, [addBotMessage]);
+  }, [addBotMessageNoTranslate]);
 
   const validateInput = (step: ChatStep, value: string): string | null => {
     switch (step) {
-      case 'email':
+      case 'email': {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(value)) {
-          return "Please enter a valid email address 📧";
-        }
+        if (!emailRegex.test(value)) return "Please enter a valid email address 📧";
         break;
-      case 'age':
+      }
+      case 'age': {
         const age = parseInt(value);
-        if (isNaN(age) || age < 5 || age > 99) {
-          return "Please enter a valid age between 5 and 99 🎂";
-        }
+        if (isNaN(age) || age < 5 || age > 99) return "Please enter a valid age between 5 and 99 🎂";
         break;
+      }
       case 'firstName':
-        if (value.trim().includes(' ')) {
-          return "Please enter only your first name (one word) 😊";
-        }
-        if (value.trim().length < 2) {
-          return "Please enter at least 2 characters";
-        }
+        if (value.trim().includes(' ')) return "Please enter only your first name (one word) 😊";
+        if (value.trim().length < 2) return "Please enter at least 2 characters";
         break;
       case 'surname':
       case 'stateOfOrigin':
       case 'lga':
-        if (value.trim().length < 2) {
-          return "Please enter at least 2 characters";
-        }
+        if (value.trim().length < 2) return "Please enter at least 2 characters";
         break;
     }
     return null;
@@ -151,34 +144,18 @@ export function useChatBot() {
     try {
       let photoBase64 = '';
       let videoBase64 = '';
-
-      if (data.photo) {
-        photoBase64 = await fileToBase64(data.photo);
-      }
-      if (data.video) {
-        videoBase64 = await fileToBase64(data.video);
-      }
+      if (data.photo) photoBase64 = await fileToBase64(data.photo);
+      if (data.video) videoBase64 = await fileToBase64(data.video);
 
       const { data: response, error } = await supabase.functions.invoke('submit-registration', {
         body: {
-          email: data.email,
-          firstName: data.firstName,
-          middleName: data.middleName,
-          surname: data.surname,
-          age: data.age,
-          stateOfOrigin: data.stateOfOrigin,
-          lga: data.lga,
-          photoBase64,
-          videoBase64,
+          email: data.email, firstName: data.firstName, middleName: data.middleName,
+          surname: data.surname, age: data.age, stateOfOrigin: data.stateOfOrigin,
+          lga: data.lga, photoBase64, videoBase64,
         },
       });
 
-      if (error) {
-        console.error('Edge function error:', error);
-        return false;
-      }
-
-      console.log('Airtable submission response:', response);
+      if (error) { console.error('Edge function error:', error); return false; }
       return response?.success === true;
     } catch (error) {
       console.error('Error submitting to Airtable:', error);
@@ -192,50 +169,35 @@ export function useChatBot() {
 
     if (currentStep === 'confirmation') {
       if (trimmedInput.toUpperCase() === 'YES') {
-        const finalData = {
-          ...registrationData,
-          submittedAt: new Date(),
-        };
-        
-        // Show submitting message
-        addBotMessage("⏳ Submitting your registration...");
-        
-        // Submit to Airtable
+        const finalData = { ...registrationData, submittedAt: new Date() };
+        await addBotMessage("⏳ Submitting your registration...", trimmedInput);
         const success = await submitToAirtable(finalData);
         
         if (success) {
-          // Save to localStorage as backup
           const existingData = JSON.parse(localStorage.getItem('registrations') || '[]');
           existingData.push(finalData);
           localStorage.setItem('registrations', JSON.stringify(existingData));
-          
           setCurrentStep('complete');
-          addBotMessage(BOT_MESSAGES.complete);
+          await addBotMessage(BOT_MESSAGES.complete, trimmedInput);
         } else {
-          addBotMessage("❌ Something went wrong. Please try again by typing YES to resubmit.");
+          await addBotMessage("❌ Something went wrong. Please try again by typing YES to resubmit.", trimmedInput);
         }
         return;
       } else if (trimmedInput.toUpperCase() === 'NO') {
         hasStarted.current = false;
+        isFirstUserMessage.current = true;
         setMessages([]);
         setRegistrationData({
-          email: '',
-          firstName: '',
-          middleName: '',
-          surname: '',
-          age: '',
-          stateOfOrigin: '',
-          lga: '',
-          photo: null,
-          photoUrl: '',
-          video: null,
-          videoUrl: '',
+          email: '', firstName: '', middleName: '', surname: '',
+          age: '', stateOfOrigin: '', lga: '',
+          photo: null, photoUrl: '', video: null, videoUrl: '',
         });
         setCurrentStep('welcome');
+        resetLanguage();
         setTimeout(() => startChat(), 500);
         return;
       } else {
-        addBotMessage("Please reply YES to confirm or NO to start over 🤔");
+        await addBotMessage("Please reply YES to confirm or NO to start over 🤔", trimmedInput);
         return;
       }
     }
@@ -243,19 +205,14 @@ export function useChatBot() {
     // Validate input
     const error = validateInput(currentStep, trimmedInput);
     if (error) {
-      addBotMessage(error);
+      await addBotMessage(error, trimmedInput);
       return;
     }
 
     // Update registration data
     const fieldMap: Record<string, keyof RegistrationData> = {
-      email: 'email',
-      firstName: 'firstName',
-      middleName: 'middleName',
-      surname: 'surname',
-      age: 'age',
-      stateOfOrigin: 'stateOfOrigin',
-      lga: 'lga',
+      email: 'email', firstName: 'firstName', middleName: 'middleName',
+      surname: 'surname', age: 'age', stateOfOrigin: 'stateOfOrigin', lga: 'lga',
     };
 
     const field = fieldMap[currentStep];
@@ -269,27 +226,25 @@ export function useChatBot() {
     
     if (nextStep && nextStep !== 'confirmation' && nextStep !== 'complete') {
       setCurrentStep(nextStep);
-      addBotMessage(BOT_MESSAGES[nextStep]);
+      await addBotMessage(BOT_MESSAGES[nextStep], trimmedInput);
     }
-  }, [currentStep, addUserMessage, addBotMessage, registrationData, startChat]);
+  }, [currentStep, addUserMessage, addBotMessage, registrationData, startChat, resetLanguage]);
 
-  const handleFileUpload = useCallback((file: File, type: 'image' | 'video') => {
-    // Validate file size
+  const handleFileUpload = useCallback(async (file: File, type: 'image' | 'video') => {
     const maxSize = type === 'image' ? 5 * 1024 * 1024 : 50 * 1024 * 1024;
     const maxSizeLabel = type === 'image' ? '5MB' : '50MB';
     
     if (file.size > maxSize) {
-      addBotMessage(`❌ File too large! Maximum size is ${maxSizeLabel}. Your file is ${(file.size / (1024 * 1024)).toFixed(1)}MB. Please upload a smaller file.`);
+      await addBotMessage(`❌ File too large! Maximum size is ${maxSizeLabel}. Your file is ${(file.size / (1024 * 1024)).toFixed(1)}MB. Please upload a smaller file.`);
       return;
     }
 
-    // Validate file type
     const allowedTypes = type === 'image' 
       ? ['image/jpeg', 'image/png', 'image/jpg']
       : ['video/mp4'];
     
     if (!allowedTypes.includes(file.type)) {
-      addBotMessage(`❌ Invalid file type! Please upload ${type === 'image' ? 'a JPG or PNG image' : 'an MP4 video'}.`);
+      await addBotMessage(`❌ Invalid file type! Please upload ${type === 'image' ? 'a JPG or PNG image' : 'an MP4 video'}.`);
       return;
     }
 
@@ -297,67 +252,41 @@ export function useChatBot() {
     
     addUserMessage(
       type === 'image' ? '📸 Photo uploaded' : '🎥 Video uploaded',
-      true,
-      file.name,
-      type,
-      fileUrl
+      true, file.name, type, fileUrl
     );
 
     if (type === 'image') {
       setRegistrationData(prev => ({ ...prev, photo: file, photoUrl: fileUrl }));
       setCurrentStep('video');
-      addBotMessage(BOT_MESSAGES.video);
+      await addBotMessage(BOT_MESSAGES.video);
     } else {
       setRegistrationData(prev => ({ ...prev, video: file, videoUrl: fileUrl }));
       setCurrentStep('confirmation');
       
-      setTimeout(() => {
-        setIsTyping(true);
-        setTimeout(() => {
-          setIsTyping(false);
-          const updatedData = {
-            ...registrationData,
-            video: file,
-            videoUrl: fileUrl,
-          };
-          setMessages(prev => [...prev, {
-            id: generateId(),
-            type: 'bot',
-            content: generateConfirmationMessage(updatedData),
-            timestamp: new Date(),
-          }]);
-        }, 1500);
-      }, 500);
+      setIsTyping(true);
+      const updatedData = { ...registrationData, video: file, videoUrl: fileUrl };
+      const confirmMsg = generateConfirmationMessage(updatedData);
+      const translated = await translate(confirmMsg);
+      setIsTyping(false);
+      addBotMessageRaw(translated);
     }
-  }, [addUserMessage, addBotMessage, registrationData, setRegistrationData]);
+  }, [addUserMessage, addBotMessage, registrationData, translate, addBotMessageRaw]);
 
   const resetChat = useCallback(() => {
     hasStarted.current = false;
+    isFirstUserMessage.current = true;
     setMessages([]);
     setRegistrationData({
-      email: '',
-      firstName: '',
-      middleName: '',
-      surname: '',
-      age: '',
-      stateOfOrigin: '',
-      lga: '',
-      photo: null,
-      photoUrl: '',
-      video: null,
-      videoUrl: '',
+      email: '', firstName: '', middleName: '', surname: '',
+      age: '', stateOfOrigin: '', lga: '',
+      photo: null, photoUrl: '', video: null, videoUrl: '',
     });
     setCurrentStep('welcome');
-  }, []);
+    resetLanguage();
+  }, [resetLanguage]);
 
   return {
-    messages,
-    currentStep,
-    isTyping,
-    registrationData,
-    startChat,
-    processUserInput,
-    handleFileUpload,
-    resetChat,
+    messages, currentStep, isTyping, registrationData,
+    startChat, processUserInput, handleFileUpload, resetChat,
   };
 }
