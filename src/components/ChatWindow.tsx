@@ -10,6 +10,7 @@ export function ChatWindow() {
     messages,
     currentStep,
     isTyping,
+    detectedLanguage,
     startChat,
     processUserInput,
     handleFileUpload,
