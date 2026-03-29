@@ -37,7 +37,7 @@ export function useChatBot() {
   
   const hasStarted = useRef(false);
   const isFirstUserMessage = useRef(true);
-  const { detectAndTranslate, translate, resetLanguage } = useTranslation();
+  const { detectedLanguage, detectAndTranslate, translate, resetLanguage } = useTranslation();
 
   const addBotMessageRaw = useCallback((content: string) => {
     setMessages(prev => [...prev, {
@@ -286,7 +286,7 @@ export function useChatBot() {
   }, [resetLanguage]);
 
   return {
-    messages, currentStep, isTyping, registrationData,
+    messages, currentStep, isTyping, registrationData, detectedLanguage,
     startChat, processUserInput, handleFileUpload, resetChat,
   };
 }
