@@ -50,12 +50,10 @@ export function useChatBot() {
 
     let translatedContent = content;
     try {
-      if (userInput && isFirstUserMessage.current) {
-        // First user message: detect language and translate
-        isFirstUserMessage.current = false;
+      if (userInput) {
+        // Always re-detect language from user input so switching languages works
         translatedContent = await detectAndTranslate(content, userInput);
       } else {
-        // Subsequent messages: translate using detected language
         translatedContent = await translate(content);
       }
     } catch {
