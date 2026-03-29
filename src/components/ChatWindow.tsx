@@ -14,6 +14,7 @@ export function ChatWindow() {
     startChat,
     processUserInput,
     handleFileUpload,
+    setLanguage,
   } = useChatBot();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
