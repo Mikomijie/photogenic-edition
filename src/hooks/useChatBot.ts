@@ -307,6 +307,6 @@ export function useChatBot() {
 
   return {
     messages, currentStep, isTyping, registrationData, detectedLanguage,
-    startChat, processUserInput, handleFileUpload, resetChat,
+    startChat, processUserInput, handleFileUpload, resetChat, setLanguage,
   };
 }
