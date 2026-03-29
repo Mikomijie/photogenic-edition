@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
+// AI-powered language detection and translation hook
 export function useTranslation() {
   const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
   const languageRef = useRef<string | null>(null);
